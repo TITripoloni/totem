@@ -6,17 +6,14 @@ import json
 import logging
 import subprocess
 import os
+from functools import wraps
 
-# Configuração de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# =========================
+# CONFIGURAÇÕES
+# =========================
 
-app = Flask(__name__)
+API_TOKEN = os.getenv("API_TOKEN", "TOKEN_FIXO_PARA_SEMPRE")
 
-# Configurações do banco de dados
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
     'port': os.getenv('DB_PORT', '5432'),
@@ -25,8 +22,53 @@ DB_CONFIG = {
     'password': os.getenv('DB_PASSWORD', 'sua_senha')
 }
 
+# =========================
+# LOGGING
+# =========================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+
+# =========================
+# AUTENTICAÇÃO
+# =========================
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get("Authorization")
+
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return jsonify({'error': 'Token ausente'}), 401
+
+        token = auth_header.replace("Bearer ", "").strip()
+
+        if token != API_TOKEN:
+            return jsonify({'error': 'Token inválido'}), 401
+
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route('/api/auth', methods=['POST'])
+def auth():
+    """Retorna o token fixo"""
+    return jsonify({
+        'token': API_TOKEN,
+        'type': 'Bearer'
+    })
+
+
+# =========================
+# BANCO DE DADOS
+# =========================
+
 def get_db_connection():
-    """Estabelece conexão com o banco de dados"""
     try:
         conn = psycopg.connect(
             host=DB_CONFIG['host'],
@@ -35,46 +77,47 @@ def get_db_connection():
             user=DB_CONFIG['user'],
             password=DB_CONFIG['password']
         )
-        logger.info("✅ Conexão com banco de dados estabelecida com sucesso")
         return conn
     except Exception as e:
-        logger.error(f"❌ Erro ao conectar ao banco de dados: {str(e)}")
+        logger.error(f"Erro ao conectar no banco: {e}")
         raise
 
+
+# =========================
+# VALIDAÇÃO
+# =========================
+
 def validate_heartbeat_data(data):
-    """Valida os dados recebidos"""
     required_fields = [
-        'data_de_criacao', 'event', 'router_identity', 
-        'router_serial', 'router_version', 'username',
-        'certificado', 'assigned_ip', 'server_local_ip'
+        'event', 'router_identity', 'router_serial',
+        'router_version', 'username', 'certificado',
+        'assigned_ip', 'server_local_ip'
     ]
-    
+
     errors = []
     for field in required_fields:
         if field not in data:
             errors.append(f"Campo obrigatório ausente: {field}")
-    
+
     return errors
 
+
+# =========================
+# SCRIPT EXTERNO
+# =========================
+
 def trigger_device_check(heartbeat_id, heartbeat_data):
-    """Dispara o script device-check.py"""
     try:
         script_path = os.path.join(os.path.dirname(__file__), 'device-check.py')
-        
+
         if not os.path.exists(script_path):
-            logger.warning(f"⚠️ Script device-check.py não encontrado em {script_path}")
-            return {
-                'success': False,
-                'message': 'Script device-check.py não encontrado'
-            }
-        
-        # Prepara os dados para passar ao script
-        script_input = json.dumps({
+            return {'success': False, 'message': 'device-check.py não encontrado'}
+
+        payload = json.dumps({
             'heartbeat_id': heartbeat_id,
             'data': heartbeat_data
         })
-        
-        # Executa o script de forma assíncrona
+
         process = subprocess.Popen(
             ['python', script_path],
             stdin=subprocess.PIPE,
@@ -82,198 +125,101 @@ def trigger_device_check(heartbeat_id, heartbeat_data):
             stderr=subprocess.PIPE,
             text=True
         )
-        
-        stdout, stderr = process.communicate(input=script_input, timeout=30)
-        
+
+        stdout, stderr = process.communicate(input=payload, timeout=30)
+
         if process.returncode == 0:
-            logger.info(f"✅ Script device-check.py executado com sucesso para heartbeat ID: {heartbeat_id}")
-            return {
-                'success': True,
-                'message': 'Script executado com sucesso',
-                'output': stdout
-            }
-        else:
-            logger.error(f"❌ Erro na execução do script: {stderr}")
-            return {
-                'success': False,
-                'message': f'Erro na execução: {stderr}'
-            }
-            
-    except subprocess.TimeoutExpired:
-        logger.error("❌ Timeout na execução do script device-check.py")
-        return {
-            'success': False,
-            'message': 'Timeout na execução do script'
-        }
+            return {'success': True, 'output': stdout}
+
+        return {'success': False, 'error': stderr}
+
     except Exception as e:
-        logger.error(f"❌ Erro ao disparar script device-check.py: {str(e)}")
-        return {
-            'success': False,
-            'message': str(e)
-        }
+        return {'success': False, 'error': str(e)}
+
+
+# =========================
+# ENDPOINT HEARTBEAT
+# =========================
 
 @app.route('/api/devices/heartbeat', methods=['POST'])
+@token_required
 def receive_heartbeat():
-    """Endpoint para receber heartbeat de dispositivos"""
-    start_time = datetime.now()
-    log_details = {
-        'timestamp': start_time.isoformat(),
-        'endpoint': '/api/devices/heartbeat',
-        'method': 'POST',
-        'status': None,
-        'details': {}
-    }
-    
     try:
-        # Validação: verifica se há dados no body
         if not request.is_json:
-            log_details['status'] = 'error'
-            log_details['details']['error'] = 'Content-Type deve ser application/json'
-            logger.error(f"❌ {log_details['details']['error']}")
-            return jsonify({
-                'success': False,
-                'error': 'Content-Type deve ser application/json',
-                'log': log_details
-            }), 400
-        
+            return jsonify({'error': 'JSON obrigatório'}), 400
+
         data = request.get_json()
-        log_details['details']['received_data'] = data
-        logger.info(f"📥 Dados recebidos: {json.dumps(data, indent=2)}")
-        
-        # Validação dos campos obrigatórios
-        validation_errors = validate_heartbeat_data(data)
-        if validation_errors:
-            log_details['status'] = 'validation_error'
-            log_details['details']['validation_errors'] = validation_errors
-            logger.error(f"❌ Erros de validação: {validation_errors}")
-            return jsonify({
-                'success': False,
-                'errors': validation_errors,
-                'log': log_details
-            }), 400
-        
-        # Conexão com banco de dados
+
+        errors = validate_heartbeat_data(data)
+        if errors:
+            return jsonify({'errors': errors}), 400
+
+        # 🔹 DATA PADRONIZADA
+        data_criacao = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+
         conn = get_db_connection()
         cursor = conn.cursor(row_factory=dict_row)
-        
-        # Preparação dos dados para inserção
-        insert_query = """
+
+        query = """
             INSERT INTO heartbeat (
-                data_de_criacao, event, router_identity, router_serial,
-                router_version, username, certificado, assigned_ip,
-                server_local_ip, raw
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id, data_de_criacao
+                data_de_criacao, event, router_identity,
+                router_serial, router_version, username,
+                certificado, assigned_ip, server_local_ip, raw
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
         """
-        
-        raw_json = json.dumps(data)
-        
-        values = (
-            data.get('data_de_criacao'),
-            data.get('event'),
-            data.get('router_identity'),
-            data.get('router_serial'),
-            data.get('router_version'),
-            data.get('username'),
-            data.get('certificado'),
-            data.get('assigned_ip'),
-            data.get('server_local_ip'),
-            raw_json
-        )
-        
-        logger.info("💾 Executando INSERT no banco de dados...")
-        cursor.execute(insert_query, values)
+
+        cursor.execute(query, (
+            data_criacao,
+            data['event'],
+            data['router_identity'],
+            data['router_serial'],
+            data['router_version'],
+            data['username'],
+            data['certificado'],
+            data['assigned_ip'],
+            data['server_local_ip'],
+            json.dumps(data)
+        ))
+
         result = cursor.fetchone()
         conn.commit()
-        
+
         heartbeat_id = result['id']
-        log_details['details']['inserted_id'] = heartbeat_id
-        log_details['details']['inserted_at'] = result['data_de_criacao']
-        
-        logger.info(f"✅ Heartbeat inserido com sucesso! ID: {heartbeat_id}")
-        
-        # Disparar gatilho para device-check.py
-        logger.info("🔄 Disparando script device-check.py...")
-        trigger_result = trigger_device_check(heartbeat_id, data)
-        log_details['details']['trigger_result'] = trigger_result
-        
-        # Fechar conexão
+
+        trigger = trigger_device_check(heartbeat_id, data)
+
         cursor.close()
         conn.close()
-        
-        # Log de sucesso final
-        log_details['status'] = 'success'
-        end_time = datetime.now()
-        processing_time = (end_time - start_time).total_seconds()
-        log_details['details']['processing_time_seconds'] = processing_time
-        
-        logger.info(f"✅ Processamento completo em {processing_time:.3f} segundos")
-        
+
         return jsonify({
             'success': True,
-            'message': 'Heartbeat armazenado com sucesso',
-            'data': {
-                'id': heartbeat_id,
-                'data_de_criacao': str(result['data_de_criacao']),
-                'router_identity': data.get('router_identity'),
-                'event': data.get('event')
-            },
-            'trigger': trigger_result,
-            'log': log_details
+            'id': heartbeat_id,
+            'data_de_criacao': data_criacao,
+            'trigger': trigger
         }), 201
-        
-    except psycopg.Error as e:
-        log_details['status'] = 'database_error'
-        log_details['details']['error'] = str(e)
-        log_details['details']['error_type'] = type(e).__name__
-        logger.error(f"❌ Erro no banco de dados: {str(e)}")
-        
-        if 'conn' in locals():
-            conn.rollback()
-            conn.close()
-        
-        return jsonify({
-            'success': False,
-            'error': 'Erro ao armazenar no banco de dados',
-            'details': str(e),
-            'log': log_details
-        }), 500
-        
+
     except Exception as e:
-        log_details['status'] = 'server_error'
-        log_details['details']['error'] = str(e)
-        log_details['details']['error_type'] = type(e).__name__
-        logger.error(f"❌ Erro inesperado: {str(e)}")
-        
-        return jsonify({
-            'success': False,
-            'error': 'Erro interno do servidor',
-            'details': str(e),
-            'log': log_details
-        }), 500
+        logger.error(e)
+        return jsonify({'error': str(e)}), 500
+
+
+# =========================
+# HEALTH CHECK
+# =========================
 
 @app.route('/api/health', methods=['GET'])
-def health_check():
-    """Endpoint de verificação de saúde da API"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT 1')
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            'status': 'healthy',
-            'database': 'connected',
-            'timestamp': datetime.now().isoformat()
-        }), 200
-    except Exception as e:
-        return jsonify({
-            'status': 'unhealthy',
-            'database': 'disconnected',
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
+def health():
+    return jsonify({
+        'status': 'ok',
+        'timestamp': datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+    })
+
+
+# =========================
+# START
+# =========================
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
