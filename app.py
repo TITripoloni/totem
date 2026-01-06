@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from datetime import datetime
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
 import json
 import logging
 import subprocess
@@ -28,7 +28,13 @@ DB_CONFIG = {
 def get_db_connection():
     """Estabelece conexão com o banco de dados"""
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg.connect(
+            host=DB_CONFIG['host'],
+            port=DB_CONFIG['port'],
+            dbname=DB_CONFIG['database'],
+            user=DB_CONFIG['user'],
+            password=DB_CONFIG['password']
+        )
         logger.info("✅ Conexão com banco de dados estabelecida com sucesso")
         return conn
     except Exception as e:
@@ -148,7 +154,7 @@ def receive_heartbeat():
         
         # Conexão com banco de dados
         conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor = conn.cursor(row_factory=dict_row)
         
         # Preparação dos dados para inserção
         insert_query = """
@@ -216,7 +222,7 @@ def receive_heartbeat():
             'log': log_details
         }), 201
         
-    except psycopg2.Error as e:
+    except psycopg.Error as e:
         log_details['status'] = 'database_error'
         log_details['details']['error'] = str(e)
         log_details['details']['error_type'] = type(e).__name__
