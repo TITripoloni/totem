@@ -1,0 +1,28 @@
+2026-01-06 17:40:22,218 | INFO | Iniciando TOTEM API
+2026-01-06 17:40:22,224 | INFO | [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.16.1.226:5000
+2026-01-06 17:40:22,224 | INFO | [33mPress CTRL+C to quit[0m
+2026-01-06 17:40:28,078 | WARNING | Token inválido
+2026-01-06 17:40:28,078 | INFO | 192.168.0.100 - - [06/Jan/2026 17:40:28] "[31m[1mPOST /api/devices/heartbeat HTTP/1.1[0m" 401 -
+2026-01-06 17:40:37,697 | INFO | Token solicitado
+2026-01-06 17:40:37,698 | INFO | 192.168.0.100 - - [06/Jan/2026 17:40:37] "POST /api/auth HTTP/1.1" 200 -
+2026-01-06 17:48:18,263 | INFO | Token criado e salvo no banco
+2026-01-06 17:48:18,264 | INFO | Iniciando TOTEM API
+2026-01-06 17:48:18,266 | INFO | [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.16.1.226:5000
+2026-01-06 17:48:18,266 | INFO | [33mPress CTRL+C to quit[0m
+2026-01-06 17:48:22,346 | INFO | Token solicitado
+2026-01-06 17:48:22,346 | INFO | 192.168.0.100 - - [06/Jan/2026 17:48:22] "POST /api/auth HTTP/1.1" 200 -
+2026-01-06 17:48:28,487 | INFO | Token solicitado
+2026-01-06 17:48:28,488 | INFO | 192.168.0.100 - - [06/Jan/2026 17:48:28] "POST /api/auth HTTP/1.1" 200 -
+2026-01-06 17:48:29,419 | INFO | Token solicitado
+2026-01-06 17:48:29,419 | INFO | 192.168.0.100 - - [06/Jan/2026 17:48:29] "POST /api/auth HTTP/1.1" 200 -
+2026-01-06 17:48:41,389 | INFO | Heartbeat recebido: {'event': 'up', 'router_identity': 'TOTEM-02', 'router_serial': 'ABC123456', 'router_version': '7.15', 'username': 'admin', 'certificado': 'teste 2 com token', 'assigned_ip': '10.0.0.5', 'server_local_ip': '10.0.0.1'}
+2026-01-06 17:48:41,410 | INFO | Iniciando device-check | heartbeat_id=3
+2026-01-06 17:48:41,410 | ERROR | device-check.py não encontrado
+2026-01-06 17:48:41,410 | INFO | Heartbeat processado | id=3
+2026-01-06 17:48:41,410 | INFO | 192.168.0.100 - - [06/Jan/2026 17:48:41] "[35m[1mPOST /api/devices/heartbeat HTTP/1.1[0m" 201 -
